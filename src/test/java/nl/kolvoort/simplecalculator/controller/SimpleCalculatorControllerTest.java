@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import nl.kolvoort.simplecalculator.dto.CalculationInput;
 import nl.kolvoort.simplecalculator.dto.CalculationOutput;
 import nl.kolvoort.simplecalculator.service.SimpleCalculatorServiceImpl;
+import nl.kolvoort.simplecalculator.util.Constants;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -18,6 +19,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
@@ -36,12 +38,15 @@ public class SimpleCalculatorControllerTest {
 
     @Test
     void singleCalculationShouldReturnOk() throws Exception {
-        when(simpleCalculatorServiceMockBean.doCalculation(5, 2, "+"))
+        CalculationInput calculationInput = new CalculationInput(5, 2, Constants.ADD);
+        double expected = 7.0;
+
+        when(simpleCalculatorServiceMockBean.doCalculation(
+                calculationInput.getLeftOperand(),
+                calculationInput.getRightOperand(),
+                calculationInput.getOperator()))
                 .thenReturn(7.0);
-        CalculationInput calculationInput = new CalculationInput();
-        calculationInput.setOperator("+");
-        calculationInput.setLeftOperand(5);
-        calculationInput.setRightOperand(2);
+
         String jsonString = objectToString(calculationInput);
         log.info("DTO CalculationInput = {}", jsonString);
 
@@ -52,7 +57,7 @@ public class SimpleCalculatorControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("result").value("7.0"));
+                .andExpect(jsonPath("result").value(Double.toString(expected)));
 
         verify(simpleCalculatorServiceMockBean, times(1)).doCalculation(anyInt(), anyInt(), anyString());
     }
@@ -62,10 +67,10 @@ public class SimpleCalculatorControllerTest {
 
         // Arrange
         List<CalculationInput> calculations = new ArrayList<>();
-        calculations.add(new CalculationInput(55, 21, "+"));
-        calculations.add(new CalculationInput(65, 22, "-"));
-        calculations.add(new CalculationInput(75, 23, "*"));
-        calculations.add(new CalculationInput(85, 24, "/"));
+        calculations.add(new CalculationInput(55, 21, Constants.ADD));
+        calculations.add(new CalculationInput(65, 22, Constants.SUBTRACT));
+        calculations.add(new CalculationInput(75, 23, Constants.MULTIPLY));
+        calculations.add(new CalculationInput(85, 24, Constants.DIVIDE));
         double expected = 373.25;
 
         log.info("Test input multiple calculations = {}", objectToString(calculations));
@@ -94,15 +99,17 @@ public class SimpleCalculatorControllerTest {
     }
 
     @Test
-    void singleCalculationUnknownOperatorShouldReturnUError() throws Exception {
+    void singleCalculationUnknownOperatorShouldReturnIllegalArgumentException() throws Exception {
         // Arrange
         CalculationInput calculationInput = new CalculationInput();
         calculationInput.setOperator("%");
         calculationInput.setLeftOperand(5);
         calculationInput.setRightOperand(2);
-        IllegalArgumentException exception = new IllegalArgumentException("Operator not supported");
 
-        when(simpleCalculatorServiceMockBean.doCalculation(5, 2, "%"))
+        when(simpleCalculatorServiceMockBean.doCalculation(
+                calculationInput.getLeftOperand(),
+                calculationInput.getRightOperand(),
+                calculationInput.getOperator()))
                 .thenThrow(new IllegalArgumentException("Operator not supported"));
 
         String jsonString = objectToString(calculationInput);
@@ -116,8 +123,39 @@ public class SimpleCalculatorControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("result")
-                        .value(exception));
+                .andExpect(jsonPath("$.result", containsString("Operator not supported")))
+                .andReturn();
+
+        verify(simpleCalculatorServiceMockBean, times(1)).doCalculation(anyInt(), anyInt(), anyString());
+    }
+
+    @Test
+    void singleCalculationDivideByZeroShouldReturnArithmeticException() throws Exception {
+        // Arrange
+        CalculationInput calculationInput = new CalculationInput();
+        calculationInput.setOperator(Constants.DIVIDE);
+        calculationInput.setLeftOperand(5);
+        calculationInput.setRightOperand(0);
+
+        when(simpleCalculatorServiceMockBean.doCalculation(
+                calculationInput.getLeftOperand(),
+                calculationInput.getRightOperand(),
+                calculationInput.getOperator()))
+                .thenThrow(new ArithmeticException("Can't divide by zero"));
+
+        String jsonString = objectToString(calculationInput);
+        log.info("DTO CalculationInput = {}", jsonString);
+
+        // Act & Assert
+        this.mockMvc.perform(
+                MockMvcRequestBuilders
+                        .post("/single")
+                        .content(jsonString)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result", containsString("Can't divide by zero")))
+                .andReturn();
 
         verify(simpleCalculatorServiceMockBean, times(1)).doCalculation(anyInt(), anyInt(), anyString());
     }
